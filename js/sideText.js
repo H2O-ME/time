@@ -1,5 +1,8 @@
 var S = {
   init: function () {
+    var action = window.location.href,
+        i = action.indexOf('?a=');
+
     S.Drawing.init('.canvas');
     document.body.classList.add('body--ready');
 
@@ -13,7 +16,11 @@ var S = {
       }
     });
 
-    startClock();
+    if (i !== -1) {
+      S.UI.simulate(decodeURI(action).substring(i + 3));
+    } else {
+      S.UI.simulate('Shape|Shifter|#time||');
+    }
 
     S.Drawing.loop(function () {
       S.Shape.render();
@@ -93,14 +100,10 @@ S.UI = (function () {
 
   function formatTime(date) {
     var h = date.getHours(),
-        m = date.getMinutes(),
-        s = date.getSeconds();
+        m = date.getMinutes();
     
-    h = h < 10 ? '0' + h : h;
     m = m < 10 ? '0' + m : m;
-    s = s < 10 ? '0' + s : s;
-    
-    return h + ':' + m + ':' + s;
+    return h + ':' + m;
   }
 
   function getValue(value) {
@@ -183,26 +186,13 @@ S.UI = (function () {
 
         case 'time':
           clearInterval(interval);
-          
-          var updateTime = function() {
-            var now = new Date();
-            var h = now.getHours();
-            var m = now.getMinutes();
-            
-            h = h < 10 ? '0' + h : h;
-            m = m < 10 ? '0' + m : m;
-            
-            var timeStr = h + ':' + m;
-            
-            if (timeStr !== lastTime) {
-              lastTime = timeStr;
-              S.Shape.switchShape(S.ShapeBuilder.letter(timeStr), true);
-            }
-          };
-          
-          updateTime();
-          interval = setInterval(updateTime, 60000);
-          break;
+          time = formatTime(new Date());
+          S.Shape.switchShape(S.ShapeBuilder.letter(time));
+          interval = setInterval(function () {
+            time = formatTime(new Date());
+            S.Shape.switchShape(S.ShapeBuilder.letter(time));
+          }, 60000);
+          return;
 
         default:
           S.Shape.switchShape(S.ShapeBuilder.letter(current[0] === cmd ? 'What?' : current));
@@ -342,24 +332,30 @@ S.Dot.prototype = {
   _update: function () {
     if (this._moveTowards(this.t)) {
       var p = this.q.shift();
+
       if (p) {
         this.t.x = p.x || this.p.x;
         this.t.y = p.y || this.p.y;
         this.t.z = p.z || this.p.z;
         this.t.a = p.a || this.p.a;
         this.p.h = p.h || 0;
+      } else {
+        if (this.s) {
+          this.p.x -= Math.sin(Math.random() * 3.142);
+          this.p.y -= Math.sin(Math.random() * 3.142);
+        } else {
+          this.move(new S.Point({
+            x: this.p.x + (Math.random() * 50) - 25,
+            y: this.p.y + (Math.random() * 50) - 25,
+          }));
+        }
       }
     }
 
     d = this.p.a - this.t.a;
-    this.p.a = Math.max(0.95, this.p.a - (d * 0.05));
+    this.p.a = Math.max(0.1, this.p.a - (d * 0.05));
     d = this.p.z - this.t.z;
-    this.p.z = Math.max(3.5, this.p.z - (d * 0.05));
-    
-    if (this.originalX) {
-      this.p.x = this.originalX;
-      this.p.y = this.originalY;
-    }
+    this.p.z = Math.max(1, this.p.z - (d * 0.05));
   },
 
   distanceTo: function (n, details) {
@@ -484,8 +480,8 @@ S.ShapeBuilder = (function () {
 
       setFontSize(fontSize);
       s = Math.min(fontSize,
-                  (shapeCanvas.width / shapeContext.measureText(l).width) * 0.95 * fontSize,
-                  (shapeCanvas.height / fontSize) * (isNumber(l) ? 1.4 : 0.8) * fontSize);
+                  (shapeCanvas.width / shapeContext.measureText(l).width) * 0.9 * fontSize,
+                  (shapeCanvas.height / fontSize) * (isNumber(l) ? 1 : 0.5) * fontSize);
       setFontSize(s);
 
       shapeContext.clearRect(0, 0, shapeCanvas.width, shapeCanvas.height);
@@ -563,12 +559,22 @@ S.Shape = (function () {
 
       while (n.dots.length > 0) {
         i = Math.floor(Math.random() * n.dots.length);
-        dots[d].e = fast ? 0.25 : 0.14;
+        dots[d].e = fast ? 0.25 : (dots[d].s ? 0.14 : 0.11);
+
+        if (dots[d].s) {
+          dots[d].move(new S.Point({
+            z: Math.random() * 20 + 10,
+            a: Math.random(),
+            h: 18
+          }));
+        } else {
+          dots[d].move(new S.Point({
+            z: Math.random() * 5 + 5,
+            h: fast ? 18 : 30
+          }));
+        }
+
         dots[d].s = true;
-        
-        dots[d].originalX = n.dots[i].x + cx;
-        dots[d].originalY = n.dots[i].y + cy;
-        
         dots[d].move(new S.Point({
           x: n.dots[i].x + cx,
           y: n.dots[i].y + cy,
@@ -582,15 +588,23 @@ S.Shape = (function () {
       }
 
       for (var i = d; i < dots.length; i++) {
-        dots[i].s = false;
-        dots[i].e = 0.14;
-        dots[i].move(new S.Point({ 
-          x: Math.random() * a.w,
-          y: Math.random() * a.h,
-          a: 0.3,
-          z: 1,
-          h: 0
-        }));
+        if (dots[i].s) {
+          dots[i].move(new S.Point({
+            z: Math.random() * 20 + 10,
+            a: Math.random(),
+            h: 20
+          }));
+
+          dots[i].s = false;
+          dots[i].e = 0.04;
+          dots[i].move(new S.Point({ 
+            x: Math.random() * a.w,
+            y: Math.random() * a.h,
+            a: 0.3, //.4
+            z: Math.random() * 4,
+            h: 0
+          }));
+        }
       }
     },
 
@@ -604,46 +618,3 @@ S.Shape = (function () {
 
 
 S.init();
-
-function startClock() {
-  var lastTime = '';
-  
-  function updateDisplay() {
-    var now = new Date();
-    var h = now.getHours();
-    var m = now.getMinutes();
-    
-    // 格式化时间
-    h = h < 10 ? '0' + h : h;
-    m = m < 10 ? '0' + m : m;
-    
-    // 构建时间字符串
-    var timeStr = h + ':' + m;
-    
-    // 只在时间变化时更新显示
-    if (timeStr !== lastTime) {
-      lastTime = timeStr;
-      S.Shape.switchShape(S.ShapeBuilder.letter(timeStr), true);
-    }
-  }
-
-  // 立即执行一次
-  updateDisplay();
-  
-  // 计算到下一分钟的毫秒数
-  function getNextMinute() {
-    var now = new Date();
-    var nextMinute = new Date(now);
-    nextMinute.setMinutes(now.getMinutes() + 1);
-    nextMinute.setSeconds(0);
-    nextMinute.setMilliseconds(0);
-    return nextMinute.getTime() - now.getTime();
-  }
-
-  // 设置第一次更新的定时器
-  setTimeout(function() {
-    updateDisplay();
-    // 之后每分钟更新一次
-    setInterval(updateDisplay, 60000);
-  }, getNextMinute());
-}
